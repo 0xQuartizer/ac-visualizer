@@ -14,7 +14,7 @@
   #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 
   .label {
-    transform: translate(-50%, -100%);
+    transform: translate(-50%, calc(-100% - 30px));
     background: rgba(20, 26, 34, 0.85);
     border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: 8px;
@@ -47,6 +47,44 @@
     background: #5a1d1d; color: #ffd9d9; font-size: 13px; font-weight: 600;
     border: 1px solid #a23b3b;
   }
+
+  /* Painel flutuante de visibilidade */
+  #painel {
+    position: absolute; top: 14px; left: 14px;
+    background: rgba(20, 26, 34, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 8px;
+    backdrop-filter: blur(2px);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+    min-width: 220px;
+    user-select: none;
+  }
+  #painel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 11px;
+    cursor: pointer;
+    font-size: 12.5px; font-weight: 650; color: #e8edf2;
+    letter-spacing: 0.02em;
+  }
+  #painel-head:hover { color: #fff; }
+  #painel-arrow { font-size: 10px; color: #9fb0c0; margin-left: 8px; transition: transform 0.15s; }
+  #painel.collapsed #painel-arrow { transform: rotate(-90deg); }
+  #painel-body {
+    border-top: 1px solid rgba(255,255,255,0.10);
+    padding: 5px 4px 7px;
+    max-height: 75vh; overflow-y: auto;
+  }
+  #painel.collapsed #painel-body { display: none; }
+  .painel-linha {
+    display: flex; align-items: center; gap: 7px;
+    padding: 4px 8px; border-radius: 5px;
+    cursor: pointer; font-size: 12px; color: #cdd8e3;
+    transition: background 0.1s;
+  }
+  .painel-linha:hover { background: rgba(255,255,255,0.07); }
+  .painel-linha input[type=checkbox] { accent-color: #4aa3e0; width: 13px; height: 13px; cursor: pointer; flex-shrink: 0; }
+  .painel-swatch { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+  .painel-nome { flex: 1; line-height: 1.3; }
 </style>
 </head>
 <body>
@@ -57,6 +95,10 @@
   <p>Arrastar para rodar · scroll para zoom · botão direito / dois dedos para deslocar</p>
 </div>
 <div id="aviso"></div>
+<div id="painel">
+  <div id="painel-head">Aparelhos <span id="painel-arrow">▾</span></div>
+  <div id="painel-body"></div>
+</div>
 
 <script type="importmap">
 {
@@ -76,6 +118,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 // Dados (altura=Y, largura=X, profundidade=Z), em milímetros, + preço em euros
 // ---------------------------------------------------------------------------
 const APARELHOS = [
+  { nome: "Cecotec ForceClima 7100 Soundless",  larguraMm: 330, alturaMm: 675, profundidadeMm: 325, precoEur: 179, cor: 0xf06292, url: "https://www.pccomponentes.com/cecotec-forceclima-7100-soundless-aire-acondicionado-portatil-con-mando-a-distancia-7000-btu" },
   { nome: "Cecotec ForceClima 9150 Style",     larguraMm: 275, alturaMm: 685, profundidadeMm: 330, precoEur: 180, cor: 0xe6584d, url: "https://cecotec.es/es/aires-acondicionados-portatiles/forceclima-9150-style" },
   { nome: "Daitsu Alisios Premium APD09FX2",   larguraMm: 388, alturaMm: 630, profundidadeMm: 356, precoEur: 300, cor: 0xf0a93b, url: "https://daitsu.es/aire-acondicionado/alisios-premium" },
   { nome: "De'Longhi Pinguino ES72",           larguraMm: 296, alturaMm: 689, profundidadeMm: 361, precoEur: 385, cor: 0x46c07a, url: "https://www.delonghi.com/en/p/portable-air-conditioners-pinguino-compact-portable-air-conditioner-pac-es72-classic/PACES72CLASSIC.html" },
@@ -84,6 +127,7 @@ const APARELHOS = [
   // Referências de escala
   { nome: "AEG AX91-404 (purificador)",        larguraMm: 315, alturaMm: 565, profundidadeMm: 315, precoEur: null, cor: 0x7ab3c8, forma: 'hex', referencia: true, extraGap: true, url: "https://www.aeg.com.pt/vacuums-home-comfort/air-comfort/air-purifiers/oxygen-air-purifier/ax91-404dg/" },
   { nome: "MEI DH 5512 (desumidificador)",     larguraMm: 340, alturaMm: 470, profundidadeMm: 200, precoEur: null, cor: 0x82c47a, referencia: true, extraGap: false, url: "https://mei.pt/catalog/product/view/id/6107/s/mei-dh-5512-desumidificador-12-l/category/168/" },
+  { nome: "TCL TAC-09CPB/RPVW (amigo)",        larguraMm: 340, alturaMm: 695, profundidadeMm: 340, precoEur: null, cor: 0xffd54f, referencia: true, extraGap: false, url: "https://www.castroelectronica.pt/es/product/ar-condicionado-portatil-tac-09cpbrpvw-9000btu-apenas-frio-c-desumidificador--tcl-1" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -130,19 +174,19 @@ dir.shadow.camera.top = 8;   dir.shadow.camera.bottom = -8;
 scene.add(dir);
 
 // ---------------------------------------------------------------------------
-// Blocos: largura total para centrar o conjunto em x
+// Largura total inicial (todos visíveis) — usada para dimensionar chão/câmara
 // ---------------------------------------------------------------------------
 const larguras = APARELHOS.map(a => a.larguraMm * MM_TO_UNITS);
 const larguraTotal = larguras.reduce((s, w) => s + w, 0) + GAP * (APARELHOS.length - 1);
 
+// ---------------------------------------------------------------------------
+// Criação dos blocos (posição X provisória; posicionar() definirá a final)
+// ---------------------------------------------------------------------------
 const grupos = [];
-let cursorX = -larguraTotal / 2;
 
 const fmtEur = new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 
 for (const a of APARELHOS) {
-  if (a.extraGap) cursorX += GAP * 2.5;   // separador visual antes das referências
-
   const w = a.larguraMm * MM_TO_UNITS;        // X (bounding box)
   const h = a.alturaMm * MM_TO_UNITS;         // Y
   const d = a.profundidadeMm * MM_TO_UNITS;   // Z
@@ -160,9 +204,7 @@ for (const a of APARELHOS) {
   if (a.forma === 'hex') mesh.rotation.y = Math.PI / 6;  // face plana virada para a frente
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-
-  const cx = cursorX + w / 2;
-  mesh.position.set(cx, h / 2, 0);   // base assente em y=0
+  mesh.position.set(0, h / 2, 0);   // base assente em y=0; x definido por posicionar()
   scene.add(mesh);
 
   // arestas para realçar a forma
@@ -186,12 +228,42 @@ for (const a of APARELHOS) {
     `<div class="dims">${a.alturaMm} × ${a.larguraMm} × ${a.profundidadeMm} mm (A×L×P)</div>` +
     precoHtml;
   const label = new CSS2DObject(el);
-  label.position.set(cx, h + 0.18, 0);
+  label.position.set(0, h + 2.5, 0);   // x definido por posicionar()
   scene.add(label);
 
-  grupos.push({ a, mesh, w, h, d });
-  cursorX += w + GAP;
+  grupos.push({ a, mesh, label, w, h, d });
 }
+
+// ---------------------------------------------------------------------------
+// posicionar() — recompacta e recentra os grupos visíveis
+// Preserva o separador extraGap (GAP × 2.5) antes das referências de escala,
+// mas só quando o grupo com extraGap não for o primeiro visível.
+// ---------------------------------------------------------------------------
+function posicionar() {
+  const vis = grupos.filter(g => g.mesh.visible);
+  if (!vis.length) return;
+
+  // Calcular span total dos grupos visíveis
+  let span = vis.reduce((s, g) => s + g.w, 0) + GAP * Math.max(0, vis.length - 1);
+  // Separador visual extra só quando o item de extraGap não é o primeiro visível
+  if (vis.some(g => g.a.extraGap) && vis[0] !== vis.find(g => g.a.extraGap)) {
+    span += GAP * 2.5;
+  }
+
+  let x = -span / 2;
+  for (let i = 0; i < vis.length; i++) {
+    const g = vis[i];
+    if (i > 0) x += GAP;
+    if (g.a.extraGap && i > 0) x += GAP * 2.5;
+    const cx = x + g.w / 2;
+    g.mesh.position.x = cx;
+    g.label.position.x = cx;
+    x += g.w;
+  }
+}
+
+// Posição inicial com todos os aparelhos visíveis
+posicionar();
 
 // ---------------------------------------------------------------------------
 // Chão + grelha
@@ -225,6 +297,36 @@ controls.maxPolarAngle = Math.PI / 2 + 0.02; // não passar por baixo do chão
 // posição inicial da câmara: ângulo de 3/4, mais recuada para acomodar os objectos extra
 camera.position.set(larguraTotal * 0.45, alturaMax * 1.3, larguraTotal * 1.15);
 controls.update();
+
+// ---------------------------------------------------------------------------
+// Painel flutuante — gera uma linha por aparelho
+// ---------------------------------------------------------------------------
+const painelBody = document.getElementById('painel-body');
+
+for (const g of grupos) {
+  const corHex = '#' + g.a.cor.toString(16).padStart(6, '0');
+  const linha = document.createElement('label');
+  linha.className = 'painel-linha';
+  linha.innerHTML =
+    `<input type="checkbox" checked>` +
+    `<span class="painel-swatch" style="background:${corHex}"></span>` +
+    `<span class="painel-nome">${g.a.nome}</span>`;
+  const cb = linha.querySelector('input');
+  cb.addEventListener('change', () => {
+    g.mesh.visible = cb.checked;
+    g.label.visible = cb.checked;
+    posicionar();
+  });
+  painelBody.appendChild(linha);
+}
+
+// Recolher / expandir o painel ao clicar no cabeçalho
+document.getElementById('painel-head').addEventListener('click', () => {
+  const painel = document.getElementById('painel');
+  painel.classList.toggle('collapsed');
+  document.getElementById('painel-arrow').textContent =
+    painel.classList.contains('collapsed') ? '▸' : '▾';
+});
 
 // ---------------------------------------------------------------------------
 // VERIFICAÇÃO DE ESCALA POR CÁLCULO (não por inspeção visual)
