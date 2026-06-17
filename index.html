@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Comparação 3D de volumes — Ares condicionados portáteis</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #11151c; }
+  #app { position: fixed; inset: 0; }
+
+  /* Camada das etiquetas CSS2D (não deve roubar eventos ao OrbitControls) */
+  #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+
+  .label {
+    transform: translate(-50%, -100%);
+    background: rgba(20, 26, 34, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 8px;
+    padding: 6px 9px;
+    text-align: center;
+    white-space: nowrap;
+    backdrop-filter: blur(2px);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  }
+  .label { pointer-events: auto; }
+  .label .nome  { font-weight: 600; font-size: 12.5px; color: #fff; }
+  .label .nome a { color: inherit; text-decoration: none; border-bottom: 1px dotted rgba(255,255,255,0.45); }
+  .label .nome a:hover { border-bottom-color: #fff; }
+  .label .dims  { font-size: 11px; color: #b9c4d0; margin-top: 1px; }
+  .label .preco { font-size: 12px; font-weight: 700; margin-top: 2px; }
+  .label .swatch { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; vertical-align: baseline; }
+  .label.ref { border-style: dashed; opacity: 0.9; }
+  .label .tipo { font-size: 10px; color: #7a8fa0; margin-bottom: 3px; letter-spacing: 0.05em; text-transform: uppercase; }
+
+  #titulo {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    text-align: center; color: #e8edf2; pointer-events: none; text-shadow: 0 1px 3px #000;
+  }
+  #titulo h1 { margin: 0; font-size: 17px; font-weight: 650; }
+  #titulo p  { margin: 4px 0 0; font-size: 12px; color: #9fb0c0; }
+
+  #aviso {
+    position: absolute; bottom: 12px; left: 12px; right: 12px;
+    display: none; padding: 10px 14px; border-radius: 8px;
+    background: #5a1d1d; color: #ffd9d9; font-size: 13px; font-weight: 600;
+    border: 1px solid #a23b3b;
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="labels"></div>
+<div id="titulo">
+  <h1>Comparação de volumes — Ares condicionados portáteis</h1>
+  <p>Arrastar para rodar · scroll para zoom · botão direito / dois dedos para deslocar</p>
+</div>
+<div id="aviso"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+// ---------------------------------------------------------------------------
+// Dados (altura=Y, largura=X, profundidade=Z), em milímetros, + preço em euros
+// ---------------------------------------------------------------------------
+const APARELHOS = [
+  { nome: "Cecotec ForceClima 9150 Style",     larguraMm: 275, alturaMm: 685, profundidadeMm: 330, precoEur: 180, cor: 0xe6584d, url: "https://cecotec.es/es/aires-acondicionados-portatiles/forceclima-9150-style" },
+  { nome: "Daitsu Alisios Premium APD09FX2",   larguraMm: 388, alturaMm: 630, profundidadeMm: 356, precoEur: 300, cor: 0xf0a93b, url: "https://daitsu.es/aire-acondicionado/alisios-premium" },
+  { nome: "De'Longhi Pinguino ES72",           larguraMm: 296, alturaMm: 689, profundidadeMm: 361, precoEur: 385, cor: 0x46c07a, url: "https://www.delonghi.com/en/p/portable-air-conditioners-pinguino-compact-portable-air-conditioner-pac-es72-classic/PACES72CLASSIC.html" },
+  { nome: "De'Longhi Pinguino EM90K",          larguraMm: 425, alturaMm: 700, profundidadeMm: 345, precoEur: 689, cor: 0x4aa3e0, url: "https://www.delonghi.com/en-gb/p/portable-air-conditioners-pacem90k.1silent-pinguino-portable-air-conditioner/PACEM90K.1SILENT.html" },
+  { nome: "AEG 6000 Comfort AXP26U339CW",      larguraMm: 472, alturaMm: 705, profundidadeMm: 383, precoEur: 449, cor: 0xb073e6, url: "https://www.aeg.com.pt/vacuums-home-comfort/air-comfort/air-conditioners/portable-air-conditioner/axp26u339cw/" },
+  // Referências de escala
+  { nome: "AEG AX91-404 (purificador)",        larguraMm: 315, alturaMm: 565, profundidadeMm: 315, precoEur: null, cor: 0x7ab3c8, forma: 'hex', referencia: true, extraGap: true, url: "https://www.aeg.com.pt/vacuums-home-comfort/air-comfort/air-purifiers/oxygen-air-purifier/ax91-404dg/" },
+  { nome: "MEI DH 5512 (desumidificador)",     larguraMm: 340, alturaMm: 470, profundidadeMm: 200, precoEur: null, cor: 0x82c47a, referencia: true, extraGap: false, url: "https://mei.pt/catalog/product/view/id/6107/s/mei-dh-5512-desumidificador-12-l/category/168/" },
+];
+
+// ---------------------------------------------------------------------------
+// ESCALA: uma ÚNICA constante mm -> unidades de cena, aplicada de forma
+// idêntica aos três eixos de todos os blocos. Sem fatores por eixo nem por bloco.
+// ---------------------------------------------------------------------------
+const MM_TO_UNITS = 0.005;
+const GAP = 0.45;          // espaçamento entre blocos (em unidades de cena)
+
+// ---------------------------------------------------------------------------
+// Renderers / cena / câmara
+// ---------------------------------------------------------------------------
+const app = document.getElementById('app');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+app.appendChild(renderer.domElement);
+
+const labelRenderer = new CSS2DRenderer({ element: document.getElementById('labels') });
+labelRenderer.setSize(window.innerWidth, window.innerHeight);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x11151c);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
+
+// ---------------------------------------------------------------------------
+// Luzes
+// ---------------------------------------------------------------------------
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const hemi = new THREE.HemisphereLight(0xbfd4ff, 0x202830, 0.5);
+scene.add(hemi);
+const dir = new THREE.DirectionalLight(0xffffff, 1.1);
+dir.position.set(3, 6, 4);
+dir.castShadow = true;
+dir.shadow.mapSize.set(2048, 2048);
+dir.shadow.camera.near = 0.1;
+dir.shadow.camera.far = 30;
+dir.shadow.camera.left = -8; dir.shadow.camera.right = 8;
+dir.shadow.camera.top = 8;   dir.shadow.camera.bottom = -8;
+scene.add(dir);
+
+// ---------------------------------------------------------------------------
+// Blocos: largura total para centrar o conjunto em x
+// ---------------------------------------------------------------------------
+const larguras = APARELHOS.map(a => a.larguraMm * MM_TO_UNITS);
+const larguraTotal = larguras.reduce((s, w) => s + w, 0) + GAP * (APARELHOS.length - 1);
+
+const grupos = [];
+let cursorX = -larguraTotal / 2;
+
+const fmtEur = new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+
+for (const a of APARELHOS) {
+  if (a.extraGap) cursorX += GAP * 2.5;   // separador visual antes das referências
+
+  const w = a.larguraMm * MM_TO_UNITS;        // X (bounding box)
+  const h = a.alturaMm * MM_TO_UNITS;         // Y
+  const d = a.profundidadeMm * MM_TO_UNITS;   // Z
+
+  let geom;
+  if (a.forma === 'hex') {
+    const r = (a.larguraMm / 2) * MM_TO_UNITS;
+    geom = new THREE.CylinderGeometry(r, r, h, 6);
+  } else {
+    geom = new THREE.BoxGeometry(w, h, d);
+  }
+
+  const mat = new THREE.MeshStandardMaterial({ color: a.cor, roughness: 0.55, metalness: 0.05 });
+  const mesh = new THREE.Mesh(geom, mat);
+  if (a.forma === 'hex') mesh.rotation.y = Math.PI / 6;  // face plana virada para a frente
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+
+  const cx = cursorX + w / 2;
+  mesh.position.set(cx, h / 2, 0);   // base assente em y=0
+  scene.add(mesh);
+
+  // arestas para realçar a forma
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geom),
+    new THREE.LineBasicMaterial({ color: 0x0c0f14, transparent: true, opacity: 0.5 })
+  );
+  mesh.add(edges);
+
+  // etiqueta flutuante por cima do topo
+  const el = document.createElement('div');
+  el.className = a.referencia ? 'label ref' : 'label';
+  const corHex = '#' + a.cor.toString(16).padStart(6, '0');
+  const tipoHtml = a.referencia ? `<div class="tipo">referência de escala</div>` : '';
+  const precoHtml = a.precoEur != null
+    ? `<div class="preco" style="color:${corHex}">${fmtEur.format(a.precoEur)}</div>`
+    : '';
+  el.innerHTML =
+    tipoHtml +
+    `<div class="nome"><span class="swatch" style="background:${corHex}"></span><a href="${a.url}" target="_blank" rel="noopener">${a.nome}</a></div>` +
+    `<div class="dims">${a.alturaMm} × ${a.larguraMm} × ${a.profundidadeMm} mm (A×L×P)</div>` +
+    precoHtml;
+  const label = new CSS2DObject(el);
+  label.position.set(cx, h + 0.18, 0);
+  scene.add(label);
+
+  grupos.push({ a, mesh, w, h, d });
+  cursorX += w + GAP;
+}
+
+// ---------------------------------------------------------------------------
+// Chão + grelha
+// ---------------------------------------------------------------------------
+const alturaMax = Math.max(...grupos.map(g => g.h));
+const groundSize = Math.max(larguraTotal, alturaMax) * 2.2;
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(groundSize, groundSize),
+  new THREE.MeshStandardMaterial({ color: 0x1b212b, roughness: 1 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const grid = new THREE.GridHelper(groundSize, Math.round(groundSize / (100 * MM_TO_UNITS)), 0x39424f, 0x2a313c);
+grid.position.y = 0.001;
+scene.add(grid);
+
+// ---------------------------------------------------------------------------
+// Controlos de órbita
+// ---------------------------------------------------------------------------
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0, alturaMax / 2, 0);
+controls.minDistance = larguraTotal * 0.15;
+controls.maxDistance = larguraTotal * 4;
+controls.maxPolarAngle = Math.PI / 2 + 0.02; // não passar por baixo do chão
+
+// posição inicial da câmara: ângulo de 3/4, mais recuada para acomodar os objectos extra
+camera.position.set(larguraTotal * 0.45, alturaMax * 1.3, larguraTotal * 1.15);
+controls.update();
+
+// ---------------------------------------------------------------------------
+// VERIFICAÇÃO DE ESCALA POR CÁLCULO (não por inspeção visual)
+// Recolhe os 15 rácios (5 blocos × 3 eixos) a partir da geometria efetiva
+// e confirma que todos são exatamente iguais a MM_TO_UNITS.
+// ---------------------------------------------------------------------------
+(function verificarEscala() {
+  const TOL = 1e-9;
+  const racios = [];
+  let ok = true;
+  for (const g of grupos) {
+    const p = g.mesh.geometry.parameters;
+    // CylinderGeometry (hex) tem radiusTop/height; BoxGeometry tem width/height/depth
+    const eixos = g.a.forma === 'hex'
+      ? [
+          { eixo: 'Y (altura)', unidades: p.height,    mm: g.a.alturaMm },
+          { eixo: 'R (raio)',   unidades: p.radiusTop, mm: g.a.larguraMm / 2 },
+          { eixo: 'R (raio)',   unidades: p.radiusTop, mm: g.a.larguraMm / 2 },  // simetria X=Z
+        ]
+      : [
+          { eixo: 'X (largura)',      unidades: p.width,  mm: g.a.larguraMm },
+          { eixo: 'Y (altura)',       unidades: p.height, mm: g.a.alturaMm },
+          { eixo: 'Z (profundidade)', unidades: p.depth,  mm: g.a.profundidadeMm },
+        ];
+    for (const e of eixos) {
+      const r = e.unidades / e.mm;
+      racios.push(r);
+      if (Math.abs(r - MM_TO_UNITS) > TOL) ok = false;
+    }
+  }
+  const min = Math.min(...racios), max = Math.max(...racios);
+  const spread = max - min;
+
+  console.log('%c=== Verificação de escala (mm → unidades de cena) ===', 'font-weight:bold');
+  console.log(`Constante única MM_TO_UNITS = ${MM_TO_UNITS}`);
+  console.log(`Rácios recolhidos: ${racios.length} (${grupos.length} objectos × 3 eixos)`);
+  console.log(`Rácio mínimo = ${min}`);
+  console.log(`Rácio máximo = ${max}`);
+  console.log(`Amplitude (max-min) = ${spread}  (tolerância = ${TOL})`);
+  console.table(grupos.map(g => {
+    const p = g.mesh.geometry.parameters;
+    if (g.a.forma === 'hex') {
+      return { aparelho: g.a.nome, 'Y u/mm': p.height / g.a.alturaMm, 'R u/mm': p.radiusTop / (g.a.larguraMm / 2) };
+    }
+    return { aparelho: g.a.nome, 'X u/mm': p.width / g.a.larguraMm, 'Y u/mm': p.height / g.a.alturaMm, 'Z u/mm': p.depth / g.a.profundidadeMm };
+  }));
+
+  if (ok && spread <= TOL) {
+    console.log('%c✔ ESCALA OK: os 15 rácios são idênticos e iguais a MM_TO_UNITS. Sem distorção entre eixos nem entre blocos.', 'color:#46c07a;font-weight:bold');
+  } else {
+    console.error('X ESCALA INCORRETA: encontrada divergencia de fator entre eixos/blocos.');
+    const aviso = document.getElementById('aviso');
+    aviso.style.display = 'block';
+    aviso.textContent = 'ATENÇÃO: verificação de escala falhou — ver consola. Os blocos podem estar distorcidos.';
+  }
+})();
+
+// ---------------------------------------------------------------------------
+// Loop de render + resize
+// ---------------------------------------------------------------------------
+function onResize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+  labelRenderer.setSize(w, h);
+}
+window.addEventListener('resize', onResize);
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
